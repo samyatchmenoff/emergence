@@ -1,6 +1,6 @@
 package life
 
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable
 import scala.math.{sin, cos, toRadians, sqrt}
 import scala.util.Random
 import com.badlogic.gdx.Gdx
@@ -29,6 +29,10 @@ case class HexPosition(x: Int, y: Int) {
   }
 }
 
+object HexPosition {
+  def random = HexPosition(Random.nextInt(128), Random.nextInt(72))
+}
+
 sealed trait Direction
 object Direction {
   case object RightUp extends Direction
@@ -49,24 +53,21 @@ object Action {
 sealed trait Entity
 
 case class Agent(
-  pos: HexPosition,
   vitality: Float
 ) extends Entity {
   def decide(input: AgentInput): Action = {
-    Action.Move(input.food.headOption.getOrElse(Direction.RightDown))
+    input.food.headOption.map(d => Action.Move(d)).getOrElse(Action.Wait)
   }
 }
 
 object Agent {
-  def random: Agent = Agent(HexPosition(Random.nextInt(128), Random.nextInt(72)), 1.0f - Random.nextFloat * 0.75f)
+  def random: Agent = Agent(1.0f - Random.nextFloat * 0.75f)
 }
 
-case class Food(
-  pos: HexPosition
-)
+case class Food() extends Entity
 
 object Food {
-  def random: Food = Food(HexPosition(Random.nextInt(128), Random.nextInt(72)))
+  def random: Food = Food()
 }
 
 case class AgentInput(
@@ -74,8 +75,7 @@ case class AgentInput(
 )
 
 class WorldState(
-  var agents: ArrayBuffer[Agent],
-  var foods: ArrayBuffer[Food]
+  var entities: mutable.HashMap[HexPosition,Entity]
 ) {
   def step(): Unit = {
     /*val action = (
@@ -95,29 +95,40 @@ class WorldState(
       case _ => Action.Wait
     }*/
 
-    for(i <- 0 until agents.length) {
-      if(i < agents.length) {
-        val agent = agents(i)
-        val input = AgentInput(Direction.All.filter(d => foods.exists(f => f.pos == agent.pos + d)).toSet)
-        val action = agent.decide(input)
-        val newAgent = action match {
-          case Action.Move(d) => {
-            if(!agents.exists(a => a.pos == agent.pos + d)) {
-              if(food.exists(a
-              agent.copy(pos = agent.pos + d)
-            } else {
-              agent
+    for(pos <- entities.keys) {
+      entities.get(pos) match {
+        case Some(agent: Agent) => {
+          val input = AgentInput(Direction.All.filter(d => entities.get(pos + d) == Some(Food())).toSet)
+          val action = agent.decide(input)
+          val (newPos, newAgent) = action match {
+            case Action.Move(d) => {
+              entities.get(pos + d) match {
+                case Some(_: Agent) => {
+                  (pos, agent)
+                }
+                case Some(_: Food) => {
+                  (pos + d, agent)
+                }
+                case _ => {
+                  (pos + d, agent)
+                }
+              }
+            }
+            case _ => {
+              (pos, agent)
             }
           }
-          case _ => agent
+          entities.remove(pos)
+          entities.update(newPos, newAgent)
         }
-        agents.update(i, newAgent)
+        case _ => ()
       }
     }
 
-    val action: Action = Action.Wait
-
-    foods ++= { if(Random.nextFloat > 0.95f) { Some(Food.random) } else { None } }
+    val newFoodPos = HexPosition.random
+    if(Random.nextFloat > 0.95f && !entities.contains(newFoodPos)) {
+      entities.update(newFoodPos, Food.random)
+    }
   }
 }
 
@@ -131,10 +142,10 @@ class Life extends Game {
   lazy val shapeRenderer = new ShapeRenderer;
 
   var state = new WorldState(
-    agents = ArrayBuffer((1 to 100).map(_ => Agent.random):_*),
-    foods = ArrayBuffer((1 to 100).map(_ => Food.random):_*)
+    mutable.HashMap(((1 to 100).map(_ => HexPosition.random -> Agent.random) ++ 
+      (1 to 100).map(_ => HexPosition.random -> Food.random)):_*)
   )
-
+    
   override def create() {
     camera.setToOrtho(false)
   }
@@ -173,20 +184,23 @@ class Life extends Game {
     }
     shapeRenderer.end()
 
-    for(agent <- state.agents) {
-      val v = agent.pos.vector * HEX_RADIUS
-      shapeRenderer.begin(ShapeType.Filled)
-      shapeRenderer.setColor(agent.vitality * 0.2f + 0.6f, agent.vitality * 0.8f, agent.vitality * 0.6f, 1)
-      shapeRenderer.circle(v.x, v.y, AGENT_RADIUS)
-      shapeRenderer.end()
-    }
-
-    for(food <- state.foods) {
-      val v = food.pos.vector * HEX_RADIUS
-      shapeRenderer.begin(ShapeType.Filled)
-      shapeRenderer.setColor(0.7f, 0.9f, 0.6f, 1)
-      shapeRenderer.circle(v.x, v.y, FOOD_RADIUS)
-      shapeRenderer.end()
+    for((p,e) <- state.entities) {
+      e match {
+        case agent: Agent => {
+          val v = p.vector * HEX_RADIUS
+          shapeRenderer.begin(ShapeType.Filled)
+          shapeRenderer.setColor(agent.vitality * 0.2f + 0.6f, agent.vitality * 0.8f, agent.vitality * 0.6f, 1)
+          shapeRenderer.circle(v.x, v.y, AGENT_RADIUS)
+          shapeRenderer.end()
+        }
+        case food: Food => {
+          val v = p.vector * HEX_RADIUS
+          shapeRenderer.begin(ShapeType.Filled)
+          shapeRenderer.setColor(0.7f, 0.9f, 0.6f, 1)
+          shapeRenderer.circle(v.x, v.y, FOOD_RADIUS)
+          shapeRenderer.end()
+        }
+      }
     }
   }
 }
