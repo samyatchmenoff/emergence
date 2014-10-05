@@ -171,10 +171,11 @@ class Life extends Game {
     shapeRenderer.begin(ShapeType.Filled)
     for(x <- 0 to 128; y <- 0 to 72) {
       val (r,g,b) = ((x%2) + 2 * (y%2)) match {
-        case 0 => (0.3f, 0.0f, 0.0f)
-        case 1 => (0.0f, 0.3f, 0.0f)
-        case 2 => (0.3f, 0.3f, 0.0f)
-        case _ => (0.0f, 0.0f, 0.3f)
+        // case 0 => (0.698f, 0.973f, 0.714f)
+        case 0 => (0.494f, 0.937f, 0.525f)
+        case 1 => (0.337f, 0.898f, 0.376f)
+        case 2 => (0.208f, 0.855f, 0.251f)
+        case _ => (0.071f, 0.804f, 0.118f)
       }
       shapeRenderer.setColor(r, g, b, 1.0f)
       val v = HexPosition(x, y).vector * HEX_RADIUS
@@ -189,14 +190,14 @@ class Life extends Game {
         case agent: Agent => {
           val v = p.vector * HEX_RADIUS
           shapeRenderer.begin(ShapeType.Filled)
-          shapeRenderer.setColor(agent.vitality * 0.2f + 0.6f, agent.vitality * 0.8f, agent.vitality * 0.6f, 1)
+          shapeRenderer.setColor(1.00f, 0.592f, 0.243f, agent.vitality)
           shapeRenderer.circle(v.x, v.y, AGENT_RADIUS)
           shapeRenderer.end()
         }
         case food: Food => {
           val v = p.vector * HEX_RADIUS
           shapeRenderer.begin(ShapeType.Filled)
-          shapeRenderer.setColor(0.7f, 0.9f, 0.6f, 1)
+          shapeRenderer.setColor(0.310f, 0.788f, 0.812f, 1)
           shapeRenderer.circle(v.x, v.y, FOOD_RADIUS)
           shapeRenderer.end()
         }
