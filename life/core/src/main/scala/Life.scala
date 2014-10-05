@@ -1,7 +1,7 @@
 package life
 
 import scala.collection.mutable
-import scala.math.{sin, cos, toRadians, sqrt}
+import scala.math._
 import scala.util.Random
 import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.Game
@@ -56,8 +56,16 @@ case class Agent(
   vitality: Float
 ) extends Entity {
   def decide(input: AgentInput): Action = {
-    input.food.headOption.map(d => Action.Move(d)).getOrElse(Action.Wait)
+    input.food.headOption.map { d => 
+      Action.Move(d)
+    }.
+    getOrElse {
+      Action.Move(Direction.All(Random.nextInt(Direction.All.size)))
+    }
   }
+  def vitalize(delta: Float) = Agent(
+    vitality = min(1f, max(0f, (vitality + delta)))
+  )
 }
 
 object Agent {
@@ -70,6 +78,8 @@ object Food {
   def random: Food = Food()
 }
 
+object Block extends Entity
+
 case class AgentInput(
   food: Set[Direction]
 )
@@ -78,22 +88,6 @@ class WorldState(
   var entities: mutable.HashMap[HexPosition,Entity]
 ) {
   def step(): Unit = {
-    /*val action = (
-      Gdx.input.isKeyJustPressed(Keys.E),
-      Gdx.input.isKeyJustPressed(Keys.W),
-      Gdx.input.isKeyJustPressed(Keys.Q),
-      Gdx.input.isKeyJustPressed(Keys.A),
-      Gdx.input.isKeyJustPressed(Keys.S),
-      Gdx.input.isKeyJustPressed(Keys.D)
-    ) match {
-      case (true, false, false, false, false, false) => Action.Move(Direction.RightUp)
-      case (false, true, false, false, false, false) => Action.Move(Direction.Up)
-      case (false, false, true, false, false, false) => Action.Move(Direction.LeftUp)
-      case (false, false, false, true, false, false) => Action.Move(Direction.LeftDown)
-      case (false, false, false, false, true, false) => Action.Move(Direction.Down)
-      case (false, false, false, false, false, true) => Action.Move(Direction.RightDown)
-      case _ => Action.Wait
-    }*/
 
     for(pos <- entities.keys) {
       entities.get(pos) match {
@@ -107,15 +101,18 @@ class WorldState(
                   (pos, agent)
                 }
                 case Some(_: Food) => {
-                  (pos + d, agent)
+                  (pos + d, agent.vitalize(0.1f))
+                }
+                case Some(Block) => {
+                  (pos, agent)
                 }
                 case _ => {
-                  (pos + d, agent)
+                  (pos + d, agent.vitalize(-0.001f))
                 }
               }
             }
-            case _ => {
-              (pos, agent)
+            case Action.Wait => {
+              (pos, agent.vitalize(0.01f))
             }
           }
           entities.remove(pos)
@@ -126,7 +123,7 @@ class WorldState(
     }
 
     val newFoodPos = HexPosition.random
-    if(Random.nextFloat > 0.95f && !entities.contains(newFoodPos)) {
+    if(!entities.contains(newFoodPos)) {
       entities.update(newFoodPos, Food.random)
     }
   }
@@ -134,16 +131,21 @@ class WorldState(
 
 
 class Life extends Game {
-  val HEX_RADIUS = 15.0f
-  val AGENT_RADIUS = 7.0f
-  val FOOD_RADIUS = 4.0f
+  val HEX_RADIUS = 9.0f
+  val AGENT_RADIUS = 4.0f
+  val FOOD_RADIUS = 2.0f
+  val BLOCK_RADIUS = 5.0f
 
   lazy val camera = new OrthographicCamera;
   lazy val shapeRenderer = new ShapeRenderer;
 
   var state = new WorldState(
-    mutable.HashMap(((1 to 100).map(_ => HexPosition.random -> Agent.random) ++ 
-      (1 to 100).map(_ => HexPosition.random -> Food.random)):_*)
+    mutable.HashMap((
+      (1 to 100).map(_ => HexPosition.random -> Agent.random) ++
+      (1 to 400).map(_ => HexPosition.random -> Food.random) ++
+      (0 until 93).flatMap(x ⇒ Seq((HexPosition(x, 0) → Block), (HexPosition(x, 45) → Block))) ++
+      (0 until 45).flatMap(y ⇒ Seq((HexPosition(0, y) → Block), (HexPosition(93, y) → Block)))
+    ):_*)
   )
     
   override def create() {
@@ -171,7 +173,6 @@ class Life extends Game {
     shapeRenderer.begin(ShapeType.Filled)
     for(x <- 0 to 128; y <- 0 to 72) {
       val (r,g,b) = ((x%2) + 2 * (y%2)) match {
-        // case 0 => (0.698f, 0.973f, 0.714f)
         case 0 => (0.494f, 0.937f, 0.525f)
         case 1 => (0.337f, 0.898f, 0.376f)
         case 2 => (0.208f, 0.855f, 0.251f)
@@ -190,8 +191,8 @@ class Life extends Game {
         case agent: Agent => {
           val v = p.vector * HEX_RADIUS
           shapeRenderer.begin(ShapeType.Filled)
-          shapeRenderer.setColor(1.00f, 0.592f, 0.243f, agent.vitality)
-          shapeRenderer.circle(v.x, v.y, AGENT_RADIUS)
+          shapeRenderer.setColor(1.0f, 0.592f, 0.243f, 1.0f)
+          shapeRenderer.circle(v.x, v.y, AGENT_RADIUS * agent.vitality)
           shapeRenderer.end()
         }
         case food: Food => {
@@ -199,6 +200,13 @@ class Life extends Game {
           shapeRenderer.begin(ShapeType.Filled)
           shapeRenderer.setColor(0.310f, 0.788f, 0.812f, 1)
           shapeRenderer.circle(v.x, v.y, FOOD_RADIUS)
+          shapeRenderer.end()
+        }
+        case Block ⇒ {
+          val v = p.vector * HEX_RADIUS
+          shapeRenderer.begin(ShapeType.Filled)
+          shapeRenderer.setColor(1.00f, 0.110f, 0.086f, 1)
+          shapeRenderer.circle(v.x, v.y, BLOCK_RADIUS)
           shapeRenderer.end()
         }
       }
