@@ -44,26 +44,20 @@ object Direction {
   val All: Seq[Direction] = Seq(RightUp, Up, LeftUp, LeftDown, Down, RightDown)
 }
 
-sealed trait Action
-object Action {
-  case object Wait extends Action
-  case class Move(direction: Direction) extends Action
-}
-
 sealed trait Entity
 
 case class Agent(
   vitality: Float
 ) extends Entity {
-  def decide(input: AgentInput): Action = {
-    // move the direction with the strongest food signal
-    (input.food.maxBy(_._2) match {
-      case (d, f) if f > 0f ⇒ Some(Action.Move(d))
-      case _ ⇒ None
-    }).
-    getOrElse {
-      Action.Move(Direction.All(Random.nextInt(Direction.All.size)))
+  def decide(input: AgentInput): AgentOutput = {
+    val signals =
+    input.signals.collect {
+      case ViewFood(å, d) ⇒ Move(å, d)
+    } ++
+    Direction.All.map { d ⇒
+      Move(Random.nextFloat, d)
     }
+    AgentOutput(signals)
   }
   def vitalize(delta: Float) = Agent(
     vitality = min(1f, max(0f, vitality + delta))
@@ -82,9 +76,18 @@ object Food {
 
 object Block extends Entity
 
-case class AgentInput(
-  food: Map[Direction, Float]
-)
+sealed trait Signal {
+  val å: Float
+}
+
+// input signals
+case class ViewFood(å: Float, d: Direction) extends Signal
+
+// output signals
+case class Move(å: Float, d: Direction) extends Signal
+
+case class AgentInput(signals: Seq[Signal])
+case class AgentOutput(signals: Seq[Signal])
 
 class WorldState(
   var entities: mutable.HashMap[HexPosition,Entity]
@@ -94,37 +97,32 @@ class WorldState(
     for(pos <- entities.keys) {
       entities.get(pos) match {
         case Some(agent: Agent) => {
-          val input = AgentInput(Direction.All.map { d ⇒
-            // the input is a neuron for each direction
-            // 0 = no food, 1 = food near
+          // sight
+          val input = AgentInput(Direction.All.flatMap { d ⇒
             entities.get(pos + d) match {
-              case Some(Food()) ⇒ d → 1.0f
-              case _ ⇒ d → 0.0f
+              case Some(Food()) ⇒ Some(ViewFood(1f, d))
+              case _ ⇒ None
             }
-          }.toMap)
-          val action = agent.decide(input)
-          val (newPos, newAgent) = action match {
-            case Action.Move(d) => {
-              entities.get(pos + d) match {
-                case Some(_: Agent) => {
-                  (pos, agent)
-                }
-                case Some(_: Food) => {
-                  (pos + d, agent.vitalize(0.9f))
-                }
-                case Some(Block) => {
-                  (pos, agent)
-                }
-                case _ => {
-                  (pos + d, agent.vitalize(-0.001f))
+          })
+
+          val output = agent.decide(input)
+
+          val (newPos, newAgent) = output match {
+            case AgentOutput(signals) if signals isEmpty ⇒
+              // wait
+              (pos, agent.vitalize(0.01f))
+            case AgentOutput(signals) ⇒
+              signals.maxBy(_.å) match {
+                case Move(_, d) ⇒ entities.get(pos + d) match {
+                  case Some(_: Agent) ⇒ (pos, agent)
+                  case Some(_: Food) ⇒ (pos + d, agent.vitalize(0.9f))
+                  case Some(Block) ⇒ (pos, agent)
+                  case _ ⇒ (pos + d, agent.vitalize(-0.001f))
                 }
               }
-            }
-            case Action.Wait => {
-              (pos, agent.vitalize(0.01f))
-            }
           }
-          entities.remove(pos)
+
+            entities.remove(pos)
           entities.update(newPos, newAgent)
         }
         case _ => ()
@@ -156,7 +154,7 @@ class Life extends Game {
       (0 until 45).flatMap(y ⇒ Seq((HexPosition(0, y) → Block), (HexPosition(93, y) → Block)))
     ):_*)
   )
-    
+
   override def create() {
     camera.setToOrtho(false)
   }
