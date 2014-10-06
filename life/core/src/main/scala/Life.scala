@@ -61,7 +61,7 @@ case class Agent(
 ) extends Entity {
   def decide(input: AgentInput): AgentOutput = {
     val signals =
-    Rest(Random.nextFloat * loaf) ::
+    (1 to 6).map(_ ⇒ Rest(Random.nextFloat * loaf)).toList :::
     input.signals.flatMap {
       case ViewEmpty(å, d) ⇒
         Seq(
@@ -76,7 +76,7 @@ case class Agent(
     AgentOutput(signals)
   }
   def vitalize(delta: Float) = copy(
-    vitality = min(1f, max(0f, vitality + delta))
+    vitality = min(1f, max(-1f, vitality + delta))
   )
   def divide: (Agent, Agent) = {
     def mutate(parent_gene: Float): Float = {
@@ -147,8 +147,11 @@ class WorldState(
 
     for(pos <- entities.keys) {
       entities.get(pos) match {
-        case Some(a: Agent) if a.vitality < 0f ⇒ {
+        case Some(a: Agent) if a.vitality < -1f ⇒ {
           entities.remove(pos)
+        }
+        case Some(a: Agent) if a.vitality < 0f ⇒ {
+          entities.update(pos, a.vitalize(-.01f))
         }
         case Some(agent: Agent) => {
 
@@ -170,7 +173,7 @@ class WorldState(
                 case Rest(_) ⇒ (pos, agent.vitalize(-.01f))
                 case Move(_, d) ⇒ entities.get(pos + d) match {
                   case Some(Food) ⇒
-                    (pos + d, agent.vitalize(.1f)) // move to food
+                    (pos + d, agent.vitalize(.3f)) // move to food
                   case None ⇒
                     (pos + d, agent.vitalize(-.1f)) // move
                 }
@@ -191,13 +194,16 @@ class WorldState(
           entities.remove(pos)
           entities.update(newPos, newAgent)
         }
-        case _ => ()
+        case _ ⇒ ()
       }
     }
 
     val newFoodPos = HexPosition.random
     if(!entities.contains(newFoodPos)) {
-      entities.update(newFoodPos, Food)
+      entities.update(newFoodPos, Random.nextFloat match {
+        case x if x < .05f ⇒ Agent()
+        case _ ⇒ Food
+      })
     }
   }
 }
@@ -214,7 +220,7 @@ class Life extends Game {
 
   var state = new WorldState(
     mutable.HashMap(
-      (1 to 100).map(_ => HexPosition.random -> Agent()) ++
+      (1 to 10).map(_ => HexPosition.random -> Agent()) ++
       (1 to 400).map(_ => HexPosition.random -> Food) ++
       (0 until 95).flatMap(x ⇒ Seq(HexPosition(x, 0) → Block, HexPosition(x, 46) → Block)) ++
       (0 until 47).flatMap(y ⇒ Seq(HexPosition(0, y) → Block, HexPosition(94, y) → Block))
@@ -261,20 +267,21 @@ class Life extends Game {
 
     for ((p,e) <- state.entities) {
       e match {
-        case agent: Agent => {
+        case agent: Agent ⇒
           val v = p.vector * HEX_RADIUS
           shapeRenderer.begin(ShapeType.Filled)
-          shapeRenderer.setColor(1.0f, 0.592f, 0.243f, 1.0f)
+          if (agent.vitality > 0f)
+            shapeRenderer.setColor(1.0f, 0.592f, 0.243f, 1.0f)
+          else
+            shapeRenderer.setColor(1.0f, 0f, 0.243f, 1.0f)
           shapeRenderer.circle(v.x, v.y, AGENT_RADIUS * agent.vitality + 4)
           shapeRenderer.end()
-        }
-        case Food => {
+        case Food ⇒
           val v = p.vector * HEX_RADIUS
           shapeRenderer.begin(ShapeType.Filled)
           shapeRenderer.setColor(0.310f, 0.788f, 0.812f, 1)
           shapeRenderer.circle(v.x, v.y, FOOD_RADIUS)
           shapeRenderer.end()
-        }
         case Block ⇒ {
 //          val v = p.vector * HEX_RADIUS
 //          shapeRenderer.begin(ShapeType.Filled)
