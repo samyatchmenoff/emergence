@@ -56,15 +56,17 @@ case class Agent(
   vitality: Float
 ) extends Entity {
   def decide(input: AgentInput): Action = {
-    input.food.headOption.map { d => 
-      Action.Move(d)
-    }.
+    // move the direction with the strongest food signal
+    (input.food.maxBy(_._2) match {
+      case (d, f) if f > 0f ⇒ Some(Action.Move(d))
+      case _ ⇒ None
+    }).
     getOrElse {
       Action.Move(Direction.All(Random.nextInt(Direction.All.size)))
     }
   }
   def vitalize(delta: Float) = Agent(
-    vitality = min(1f, max(0f, (vitality + delta)))
+    vitality = min(1f, max(0f, vitality + delta))
   )
 }
 
@@ -81,7 +83,7 @@ object Food {
 object Block extends Entity
 
 case class AgentInput(
-  food: Set[Direction]
+  food: Map[Direction, Float]
 )
 
 class WorldState(
@@ -92,7 +94,14 @@ class WorldState(
     for(pos <- entities.keys) {
       entities.get(pos) match {
         case Some(agent: Agent) => {
-          val input = AgentInput(Direction.All.filter(d => entities.get(pos + d) == Some(Food())).toSet)
+          val input = AgentInput(Direction.All.map { d ⇒
+            // the input is a neuron for each direction
+            // 0 = no food, 1 = food near
+            entities.get(pos + d) match {
+              case Some(Food()) ⇒ d → 1.0f
+              case _ ⇒ d → 0.0f
+            }
+          }.toMap)
           val action = agent.decide(input)
           val (newPos, newAgent) = action match {
             case Action.Move(d) => {
@@ -101,7 +110,7 @@ class WorldState(
                   (pos, agent)
                 }
                 case Some(_: Food) => {
-                  (pos + d, agent.vitalize(0.1f))
+                  (pos + d, agent.vitalize(0.9f))
                 }
                 case Some(Block) => {
                   (pos, agent)
