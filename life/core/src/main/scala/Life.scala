@@ -24,13 +24,13 @@ case class HexPosition(x: Int, y: Int) {
     }
   }
 
-  def constrain(w: Int, h: Int) = {
-    HexPosition(XX.constrain(0, w, x), XX.constrain(0, h, y))
+  def constrain(x0: Int, y0: Int, w: Int, h: Int) = {
+    HexPosition(XX.constrain(x0, w, x), XX.constrain(y0, h, y))
   }
 }
 
 object HexPosition {
-  def random = HexPosition(Random.nextInt(110), Random.nextInt(60))
+  def random = HexPosition(10 + Random.nextInt(10), 10 + Random.nextInt(10))
 }
 
 sealed trait Direction
@@ -48,12 +48,14 @@ object Direction {
 
 object XX {
   type Sensor = ((WorldState, Agent) ⇒ Float)
-  type Behavior = ((Float, WorldState, Agent) ⇒ (WorldState, Agent))
+  type Behavior = ((WorldState, Agent) ⇒ (WorldState, Agent))
 
   def constrain(min: Float, max: Float, value: Float) =
     if (value < min) min else if (value > max) max else value
   def constrain(min: Int, max: Int, value: Int) =
     if (value < min) min else if (value > max) max else value
+
+  val HEX_RADIUS = 9.0f
 }
 import XX._
 
@@ -76,19 +78,29 @@ case class Agent(
           out
         }.sum
         val signal = (1d / (1d + pow(E, -sum_of_weighted_inputs))).toFloat
-        behavior(signal, w, a)
+        val signal_weight = genome.values(i)
+        i += 1
+        val signal_threshold = genome.values(i)
+        i += 1
+        if (signal * signal_weight < signal_threshold) {
+          (w, a)
+        } else {
+          behavior(w, a)
+        }
       }
     result
   }
 
-  def vitalize(delta: Float) = copy(vitality = constrain(-1f, 1f, vitality + delta))
+  def vitalize(delta: Float) = copy(vitality = constrain(0f, 1f, vitality + delta))
 
-  def move(d: Direction) = copy(position = (position + d).constrain(110, 60))
+  def move(d: Direction) = copy(position = (position + d).constrain(3, 3, 100, 50))
+
+  val timestamp = System.currentTimeMillis
 }
 
 object Agent {
 
-  def random = new Agent(HexPosition.random, 1f, sensors, behaviors, Genome(sensors.size * behaviors.size))
+  def random = new Agent(HexPosition.random, 1f, sensors, behaviors, Genome(sensors.size * behaviors.size + behaviors.size + behaviors.size))
 
   val sensors: List[Sensor] =
     // related neighbor
@@ -99,101 +111,27 @@ object Agent {
           case _ ⇒ 0f
         }
     }) ::: List[Sensor]()
-//            Direction.All.flatMap { d ⇒
-//              food.get(pos + d) match {
-//                case Some(f: Food) ⇒ Some(ViewFood(f.food_value, d))
-//                case _ ⇒ None
-//              }
-//            } ++
 
-//            food.get(pos).map(x ⇒ FoodPresent(x.food_value)).toList
-
-
-  val move_cost     = 0.100f
-//  val eat_gain      = 0.060f
-//  val food_growth   = 0.001f
-//  val round_cost    = 0.010f
-  val attack_cost   = 0.300f
-//  val food_rate     = 0.015f
-//  val cost_of_birth = 0.500f
+  val move_cost     = 0.001f
+  val attack_gain   = 0.100f
+  val cost_of_birth = 0.500f
+  val baby_vitality = 0.100f
 
   val behaviors: List[Behavior] =
     (for (d ← Direction.All) yield {
-      (signal: Float, world: WorldState, agent: Agent) ⇒
-        if (signal < .5f)
-          (world, agent)
-        else {
-          val new_agent = agent.vitalize(-move_cost).move(d)
-          val (new_world, new_agent2)  = world.move(agent, new_agent)
-          (new_world, new_agent2)
-        }
+      (world: WorldState, agent: Agent) ⇒
+        world.move(agent, agent.vitalize(-move_cost).move(d))
     }) ::: (for (d ← Direction.All) yield {
-      (signal: Float, world: WorldState, agent: Agent) ⇒
-        if (signal < .5f)
-          (world, agent)
-        else {
-          val new_agent = agent.vitalize(-attack_cost).move(d)
-          val (new_world, new_agent2)  = world.kill(agent, new_agent)
-          (new_world, new_agent2)
-        }
-
-//      attack adjacent
-//      (signal: Float, world: WorldState, pos: HexPosition, agent: Agent) ⇒
-//        val new_pos = pos + d
-//        world(new_pos) match {
-//          case Some(victim) ⇒
-//            val new_agent = agent.vitalize(-attack_cost)
-//            val new_world = world.entities - pos + (new_pos → new_agent)
-//            (WorldState(new_world), new_pos, new_agent)
-//          case _ ⇒ (world, pos, agent) // bump
-//        }
-    }) ::: List[Behavior]()
-
-//case class Eat(å: Float) extends Signal
-//case class Move(å: Float, d: Direction) extends Signal
-//case class Attack(å: Float, d: Direction) extends Signal
-//case class Divide(å: Float, d: Direction) extends Signal
-
-
-//
-//  val vitality_of_offspring = 0.001f
-
-//                case Eat(_) ⇒ food.get(pos) match {
-//                  case Some(f) ⇒
-//                    food.update(pos, f.copy(food_value = f.food_value - eat_gain))
-//                    (pos, agent.vitalize(min(f.food_value, eat_gain)))
-//                  case _ ⇒
-//                    (pos, agent) // bump
-//                }
-
-//                case Attack(_, d) ⇒ entities.get(pos + d) match {
-//                  case Some(_: Agent) ⇒
-//                    food.update(pos + d, Food(blood = true))
-//                    (pos + d, agent.vitalize(-attack_cost))
-//                  case _ ⇒
-//                    (pos, agent) // bump
-//                }
-
-//                case Divide(_, d) ⇒ entities.get(pos + d) match {
-//                  case None ⇒
-//                    val m = mutate(agent.genome_stability, agent.genome_mobility) _
-//                    entities.update(pos + d,
-//                      Agent(
-//                        vitality = vitality_of_offspring,
-//                        m(agent.loaf),
-//                        m(agent.foodie),
-//                        m(agent.bloodlust),
-//                        m(agent.wander),
-//                        m(agent.sex_drive),
-//                        m(agent.genome_stability),
-//                        m(agent.genome_mobility)
-//                      )
-//                    )
-//                    (pos + d, agent.vitalize(-cost_of_birth))
-//                  case _ ⇒
-//                    (pos, agent) // bump
-//                }
-//              }
+      (world: WorldState, agent: Agent) ⇒
+        world.kill(agent, agent.vitalize(attack_gain).move(d))
+    }) ::: (for (d ← Direction.All) yield {
+      (world: WorldState, agent: Agent) ⇒
+        if (agent.vitality > .1f) {
+          val bud_agent = agent.copy(position = agent.position + d, vitality = baby_vitality, genome = agent.genome.mutate(.9f, .1f))
+          val new_world = world.add_agent(bud_agent)
+          new_world.update_agent(agent, agent.vitalize(-cost_of_birth))
+        } else (world, agent)
+     }) ::: List[Behavior]()
 
 }
 
@@ -214,14 +152,14 @@ case class Genome(values: List[Float]) {
 object Genome {
   def apply(size: Int) = new Genome(List.fill(size)(Random.nextFloat))
   def relatedness(g0: Genome, g1: Genome): Float = {
-    assert(g0.values.size == g1.values.size)
+//    assert(g0.values.size == g1.values.size)
     (0 until g0.values.size).map(i ⇒ pow(g0.values(i) - g1.values(1), 2)).sum.toFloat
   }
 }
 
 class WorldState(
-  agent_set: Set[Agent] = Set(),
-  position_map: Map[HexPosition, Agent] = Map()
+  val agent_set: Set[Agent] = Set(),
+  val position_map: Map[HexPosition, Agent] = Map()
 ) {
 
   val agents = agent_set
@@ -229,25 +167,26 @@ class WorldState(
   def apply(pos: HexPosition): Option[Agent] = position_map.get(pos)
 
   def step: WorldState = {
-    val world = spawn
-    agent_set.foldLeft(world) { (world: WorldState, agent: Agent) ⇒
-      agent.step(world)
+    val a = agent_set.minBy(_.timestamp)
+    if (a.vitality > 0f) {
+      a.step(this.update_agent(a, a.vitalize(-.04f))._1)
+    } else {
+      Annotation.all ::= DieoffAnnotation(a.position)
+      remove_agent(a)
     }
   }
 
   def spawn = {
-    val a = Agent.random
-    this(a.position) match {
-      case None ⇒ new WorldState(agent_set + a, position_map + (a.position → a))
-      case _ ⇒ this
-    }
+    add_agent(Agent.random)
   }
 
   def move(a0: Agent, a1: Agent): (WorldState, Agent) = {
     val old_pos = a0.position
     val new_pos = a1.position
     apply(new_pos) match {
-      case None ⇒ (new WorldState((agent_set - a0) + a1, (position_map - old_pos) + (a1.position → a1)), a1)
+      case None ⇒
+        Annotation.all ::= MoveAnnotation(a1, old_pos, new_pos)
+        (new WorldState((agent_set - a0) + a1, (position_map - old_pos) + (a1.position → a1)), a1)
       case _ ⇒ (this, a0)
     }
   }
@@ -256,18 +195,36 @@ class WorldState(
     val old_pos = a0.position
     val new_pos = a1.position
     apply(new_pos) match {
-      case Some(victim) ⇒ (new WorldState((agent_set - a0 - victim) + a1, (position_map - old_pos - new_pos) + (a1.position → a1)), a1)
+      case Some(victim) ⇒
+        Annotation.all ::= MurderAnnotation(new_pos)
+        (new WorldState((agent_set - a0 - victim) + a1, (position_map - old_pos - new_pos) + (a1.position → a1)), a1)
       case _ ⇒ (this, a0)
     }
+  }
+
+  def add_agent(a: Agent): WorldState = {
+    apply(a.position) match {
+      case None ⇒
+        Annotation.all ::= BirthAnnotation(a.position)
+        new WorldState(agent_set + a, position_map + (a.position → a))
+      case _ ⇒ this
+    }
+  }
+
+  def update_agent(a0: Agent, a1: Agent): (WorldState, Agent) = {
+    val old_pos = a0.position
+    val new_pos = a1.position
+    (new WorldState((agent_set - a0) + a1, (position_map - old_pos) + (new_pos → a1)), a1)
+  }
+
+  def remove_agent(a: Agent): WorldState = {
+    new WorldState(agent_set - a, position_map - a.position)
   }
   
 }
 
 
 class Life extends Game {
-
-  val HEX_RADIUS = 9.0f
-  val AGENT_RADIUS = 4.0f
 
   lazy val camera = new OrthographicCamera
   lazy val shapeRenderer = new ShapeRenderer
@@ -278,8 +235,11 @@ class Life extends Game {
     camera.setToOrtho(false)
   }
 
+  var i = 0
   override def render() {
-
+    if (state.agents.isEmpty) state = state.spawn
+    if (i % 100 == 0) state = state.spawn
+    i += 1
     state = state.step
 
     Gdx.gl20.glViewport(0, 0, Gdx.graphics.getWidth, Gdx.graphics.getHeight)
@@ -316,10 +276,66 @@ class Life extends Game {
     for (a ← state.agents) {
       val v = a.position.vector * HEX_RADIUS
       shapeRenderer.begin(ShapeType.Filled)
-      shapeRenderer.setColor(.2f, .2f, .2f, .2f)
-      shapeRenderer.circle(v.x, v.y, AGENT_RADIUS)
+      shapeRenderer.setColor(a.genome.values(0), a.genome.values(1), a.genome.values(2), 1f)
+      shapeRenderer.circle(v.x, v.y, 1 + (a.vitality + 4))
       shapeRenderer.end()
     }
+
+    val n = System.currentTimeMillis
+    Annotation.all = for (a ← Annotation.all; if n - a.timestamp < 5000) yield {
+      a.draw(shapeRenderer)
+      a
+    }
+  }
+}
+
+object Annotation {
+  var all = List[Annotation]()
+}
+
+trait Annotation {
+  val timestamp = System.currentTimeMillis
+  def draw(shapeRenderer: ShapeRenderer): Unit
+}
+
+case class MoveAnnotation(a: Agent, from: HexPosition, to: HexPosition) extends Annotation {
+  val fromv = from.vector * HEX_RADIUS
+  val tov = to.vector * HEX_RADIUS
+  def draw(shapeRenderer: ShapeRenderer) = {
+    shapeRenderer.begin(ShapeType.Line)
+    shapeRenderer.setColor(a.genome.values(0), a.genome.values(1), a.genome.values(2), 1f)
+    shapeRenderer.line(fromv.x, fromv.y, tov.x, tov.y)
+    shapeRenderer.end()
+  }
+}
+
+case class MurderAnnotation(pos: HexPosition) extends Annotation {
+  val v = pos.vector * HEX_RADIUS
+  def draw(shapeRenderer: ShapeRenderer) = {
+    shapeRenderer.begin(ShapeType.Filled)
+    shapeRenderer.setColor(1, 0, 0, 1)
+    shapeRenderer.rect(v.x, v.y, 5, 5)
+    shapeRenderer.end()
+  }
+}
+
+case class BirthAnnotation(pos: HexPosition) extends Annotation {
+  val v = pos.vector * HEX_RADIUS
+  def draw(shapeRenderer: ShapeRenderer) = {
+    shapeRenderer.begin(ShapeType.Filled)
+    shapeRenderer.setColor(0, 0, 1, 1)
+    shapeRenderer.rect(v.x - 4, v.y - 4, 5, 5)
+    shapeRenderer.end()
+  }
+}
+
+case class DieoffAnnotation(pos: HexPosition) extends Annotation {
+  val v = pos.vector * HEX_RADIUS
+  def draw(shapeRenderer: ShapeRenderer) = {
+    shapeRenderer.begin(ShapeType.Filled)
+    shapeRenderer.setColor(.95f, 1f, 1f, 1)
+    shapeRenderer.rect(v.x - 2, v.y - 2, 4, 4)
+    shapeRenderer.end()
   }
 }
 
