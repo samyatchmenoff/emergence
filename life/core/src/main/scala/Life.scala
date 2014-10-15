@@ -114,7 +114,7 @@ object Agent {
 
   val move_cost     = 0.001f
   val attack_gain   = 0.100f
-  val cost_of_birth = 0.500f
+  val cost_of_birth = 0.200f
   val baby_vitality = 0.100f
 
   val behaviors: List[Behavior] =
@@ -126,7 +126,7 @@ object Agent {
         world.kill(agent, agent.vitalize(attack_gain).move(d))
     }) ::: (for (d ← Direction.All) yield {
       (world: WorldState, agent: Agent) ⇒
-        if (agent.vitality > .1f) {
+        if (agent.vitality > cost_of_birth ) {
           val bud_agent = agent.copy(position = agent.position + d, vitality = baby_vitality, genome = agent.genome.mutate(.9f, .1f))
           val new_world = world.add_agent(bud_agent)
           new_world.update_agent(agent, agent.vitalize(-cost_of_birth))
@@ -158,18 +158,15 @@ object Genome {
 }
 
 class WorldState(
-  val agent_set: Set[Agent] = Set(),
   val position_map: Map[HexPosition, Agent] = Map()
 ) {
-
-  val agents = agent_set
 
   def apply(pos: HexPosition): Option[Agent] = position_map.get(pos)
 
   def step: WorldState = {
-    val a = agent_set.minBy(_.timestamp)
+    val a = position_map.values.minBy(_.timestamp)
     if (a.vitality > 0f) {
-      a.step(this.update_agent(a, a.vitalize(-.04f))._1)
+      a.step(this.update_agent(a, a.vitalize(-.2f))._1)
     } else {
       Annotation.all ::= DieoffAnnotation(a.position)
       remove_agent(a)
@@ -186,7 +183,7 @@ class WorldState(
     apply(new_pos) match {
       case None ⇒
         Annotation.all ::= MoveAnnotation(a1, old_pos, new_pos)
-        (new WorldState((agent_set - a0) + a1, (position_map - old_pos) + (a1.position → a1)), a1)
+        (new WorldState((position_map - old_pos) + (a1.position → a1)), a1)
       case _ ⇒ (this, a0)
     }
   }
@@ -196,8 +193,9 @@ class WorldState(
     val new_pos = a1.position
     apply(new_pos) match {
       case Some(victim) ⇒
+        Annotation.all ::= MoveAnnotation(a1, old_pos, new_pos)
         Annotation.all ::= MurderAnnotation(new_pos)
-        (new WorldState((agent_set - a0 - victim) + a1, (position_map - old_pos - new_pos) + (a1.position → a1)), a1)
+        (new WorldState((position_map - old_pos - new_pos) + (a1.position → a1)), a1)
       case _ ⇒ (this, a0)
     }
   }
@@ -206,7 +204,7 @@ class WorldState(
     apply(a.position) match {
       case None ⇒
         Annotation.all ::= BirthAnnotation(a.position)
-        new WorldState(agent_set + a, position_map + (a.position → a))
+        new WorldState(position_map + (a.position → a))
       case _ ⇒ this
     }
   }
@@ -214,11 +212,11 @@ class WorldState(
   def update_agent(a0: Agent, a1: Agent): (WorldState, Agent) = {
     val old_pos = a0.position
     val new_pos = a1.position
-    (new WorldState((agent_set - a0) + a1, (position_map - old_pos) + (new_pos → a1)), a1)
+    (new WorldState((position_map - old_pos) + (new_pos → a1)), a1)
   }
 
   def remove_agent(a: Agent): WorldState = {
-    new WorldState(agent_set - a, position_map - a.position)
+    new WorldState(position_map - a.position)
   }
   
 }
@@ -237,7 +235,7 @@ class Life extends Game {
 
   var i = 0
   override def render() {
-    if (state.agents.isEmpty) state = state.spawn
+    if (state.position_map.isEmpty) state = state.spawn
     if (i % 100 == 0) state = state.spawn
     i += 1
     state = state.step
@@ -273,7 +271,7 @@ class Life extends Game {
     }
     shapeRenderer.end()
 
-    for (a ← state.agents) {
+    for (a ← state.position_map.values) {
       val v = a.position.vector * HEX_RADIUS
       shapeRenderer.begin(ShapeType.Filled)
       shapeRenderer.setColor(a.genome.values(0), a.genome.values(1), a.genome.values(2), 1f)
